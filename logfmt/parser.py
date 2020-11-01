@@ -11,96 +11,94 @@ class State(Enum):
     QVALUE = 4
 
 
+class ParserState:
+    def __init__(self):
+        self.output = {}
+        self.key = ()
+        self.value = ()
+        self.escaped = False
+        self.state = State.GARBAGE
+
+
 def check_char(c: str):
     return c > " " and c != '"' and c != "="
 
 
-def eval_key(line: str, i: int, c: str, key: tuple, output: dict):
-    state: State
+def eval_key(line: str, i: int, c: str, p: ParserState):
     if check_char(c):
-        state = State.KEY
-        key += (c,)
+        p.state = State.KEY
+        p.key += (c,)
     elif c == "=":
-        output["".join(key).strip()] = True
-        state = State.EQUAL
+        p.output["".join(p.key).strip()] = True
+        p.state = State.EQUAL
     else:
-        output["".join(key).strip()] = True
-        state = State.GARBAGE
+        p.output["".join(p.key).strip()] = True
+        p.state = State.GARBAGE
     if i >= len(line):
-        output["".join(key).strip()] = True
-    return state, key, output
+        p.output["".join(p.key).strip()] = True
 
 
 def eval_equal(
-    line: str, i: int, c: str, key: tuple, value: tuple, escaped: bool, output: dict
-):
-    state: State
+    line: str, i: int, c: str, p: ParserState):
     if check_char(c):
-        value = (c,)
-        state = State.IVALUE
+        p.value = (c,)
+        p.state = State.IVALUE
     elif c == '"':
-        value = ()
-        escaped = False
-        state = State.QVALUE
+        p.value = ()
+        p.escaped = False
+        p.state = State.QVALUE
     else:
-        state = State.GARBAGE
+        p.state = State.GARBAGE
     if i >= len(line):
-        output["".join(key).strip()] = "".join(value) or True
-    return state, value, escaped, output
+        p.output["".join(p.key).strip()] = "".join(p.value) or True
 
 
-def eval_ivalue(line: str, i: int, c: str, key: tuple, value: tuple, output: dict):
-    state: State = State.IVALUE
+def eval_ivalue(line: str, i: int, c: str, p: ParserState):
     if not check_char(c):
-        output["".join(key).strip()] = "".join(value)
-        state = State.GARBAGE
+        p.output["".join(p.key).strip()] = "".join(p.value)
+        p.state = State.GARBAGE
     else:
-        value += (c,)
+        p.value += (c,)
     if i >= len(line):
-        output["".join(key).strip()] = "".join(value)
-    return state, value, output
+        p.output["".join(p.key).strip()] = "".join(p.value)
 
 
-def eval_qvalue(c: str, key: tuple, value: tuple, escaped: bool, output: dict):
-    state: State = State.QVALUE
+def eval_qvalue(line: str, i: int, c: str, p: ParserState):
+    _, _ = line, i
     if c == "\\":
-        escaped = True
+        p.escaped = True
     elif c == '"':
-        if escaped:
-            escaped = False
-            value += (c,)
-            return state, value, escaped, output
-        output["".join(key).strip()] = "".join(value)
-        state = State.GARBAGE
+        if p.escaped:
+            p.escaped = False
+            p.value += (c,)
+            return
+        p.output["".join(p.key).strip()] = "".join(p.value)
+        p.state = State.GARBAGE
     else:
-        value += (c,)
-    return state, value, escaped, output
+        p.value += (c,)
+    return
 
 
 def parse_line(line):
-    output = {}
-    key, value = (), ()
-    escaped = False
-    state = State.GARBAGE
+    p = ParserState()
     for i, c in enumerate(line):
         i += 1
-        if state == State.GARBAGE:
+        if p.state == State.GARBAGE:
             if check_char(c):
-                key = (c,)
-                state = State.KEY
+                p.key = (c,)
+                p.state = State.KEY
             continue
-        if state == State.KEY:
-            state, key, output = eval_key(line, i, c, key, output)
+        if p.state == State.KEY:
+            eval_key(line, i, c, p)
             continue
-        if state == State.EQUAL:
-            state, value, escaped, output = eval_equal(
-                line, i, c, key, value, escaped, output
-            )
+        if p.state == State.EQUAL:
+            eval_equal(
+                line, i, c, p)
             continue
-        if state == State.IVALUE:
-            state, value, output = eval_ivalue(line, i, c, key, value, output)
+        if p.state == State.IVALUE:
+            eval_ivalue(line, i, c, p)
             continue
-        if state == State.QVALUE:
-            state, value, escaped, output = eval_qvalue(c, key, value, escaped, output)
+        if p.state == State.QVALUE:
+            eval_qvalue(line, i, c, p)
             continue
-    return output
+    return p.output
